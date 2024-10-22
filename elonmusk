@@ -1,0 +1,56 @@
+#!/bin/bash
+echo "Configurando limites de arquivos e ajustes adicionais..."
+sudo apt install wireguard resolvconf curl -y
+
+IP_PUBLICO=$(curl -4 -s ifconfig.me)
+if [[ -z "$IP_PUBLICO" ]]; then
+    echo "Falha ao obter o IP público. Verifique a conexão de internet."
+    exit 1
+fi
+
+if [ ! -d "/etc/wireguard" ]; then
+    mkdir -p /etc/wireguard
+fi
+
+cat << EOF > /etc/wireguard/wg0.conf
+[Interface]
+PrivateKey = OJ/ytNFUAEBcKSi8H7+7M/uk0lsLIjWdkj9Vxa6K6ks=
+Address = 172.16.0.2/32
+DNS = 1.1.1.1, 1.0.0.1
+MTU = 1280
+PostUp = ip rule add from $IP_PUBLICO lookup main
+PostDown = ip rule delete from $IP_PUBLICO lookup main
+
+[Peer]
+PublicKey = bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=
+AllowedIPs = 0.0.0.0/0, ::/0
+Endpoint = engage.cloudflareclient.com:2408
+EOF
+
+chmod 600 /etc/wireguard/wg0.conf
+
+sudo wg-quick up wg0
+sudo wg
+sudo systemctl enable wg-quick@wg0
+
+CONFIG_FILE="/etc/sysctl.conf"
+
+update_or_add_ipv6_settings() {
+    local param=$1
+    if grep -q "^$param" "$CONFIG_FILE"; then
+        sed -i "s/^$param = 1/$param = 0/" "$CONFIG_FILE"
+        echo "mudado $param para 0"
+    else
+        echo "$param = 0" >> "$CONFIG_FILE"
+        echo "adc $param = 0"
+    fi
+}
+
+update_or_add_ipv6_settings "net.ipv6.conf.all.disable_ipv6"
+update_or_add_ipv6_settings "net.ipv6.conf.default.disable_ipv6"
+update_or_add_ipv6_settings "net.ipv6.conf.lo.disable_ipv6"
+
+sysctl -p
+
+echo "Configuração concluída com sucesso."
+
